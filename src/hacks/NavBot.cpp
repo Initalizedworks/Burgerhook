@@ -1342,13 +1342,21 @@ static void autoZoom(std::pair<CachedEntity *, float> &nearest)
         return;
     if (CE_BAD(LOCAL_E) || !LOCAL_E->m_bAlivePlayer() || CE_BAD(LOCAL_W))
         return;
-    if (g_pLocalPlayer->holding_sniper_rifle)
-        return;
     // Zoom in and update timeinzoom
-    if (g_pLocalPlayer->holding_sniper_rifle && nearest.second <= *zoom_distance && !g_pLocalPlayer->bZoomed)
+    // In range, not scoped, is sniper = press attack2
+    if (LOCAL_W->m_iClassID() == CL_CLASS(CTFSniperRifle) && nearest.second <= *zoom_distance && !g_pLocalPlayer->bZoomed)
         current_user_cmd->buttons |= IN_ATTACK2;
-    if (g_pLocalPlayer->bZoomed && g_pLocalPlayer->holding_sniper_rifle &&!nearest.second <= *zoom_distance)
+    // In range, already scoped in, is sniper = do nothing for fucks sake
+    if (LOCAL_W->m_iClassID() == CL_CLASS(CTFSniperRifle) && nearest.second <= *zoom_distance && g_pLocalPlayer->bZoomed)
+        return;
+    // Out of range, still zoomed in, is sniper = press attack2
+    if (g_pLocalPlayer->bZoomed && LOCAL_W->m_iClassID() == CL_CLASS(CTFSniperRifle) &&!nearest.second <= *zoom_distance)
         current_user_cmd->buttons |= IN_ATTACK2;
+    // Out of range, is zoomed out, is sniper = do nothing
+    if(LOCAL_W->m_iClassID() == CL_CLASS(CTFSniperRifle) && !nearest.second <= *zoom_distance && !g_pLocalPlayer->bZoomed) {
+        return;
+    }
+    // In range, is minigun, HOLD ATTACK2
     if (LOCAL_W->m_iClassID() == CL_CLASS(CTFMinigun) && nearest.second <= *zoom_distance)
         current_user_cmd->buttons |= IN_JUMP | IN_ATTACK2;
 }
