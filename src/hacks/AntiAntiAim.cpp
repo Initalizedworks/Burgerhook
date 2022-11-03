@@ -1,270 +1,546 @@
 /*
- * Created on 29.07.18.
+ * AntiAim.cpp
  */
 
+#include <hacks/hacklist.hpp>
+#include <settings/Bool.hpp>
+#include <hacks/AntiAim.hpp>
+
 #include "common.hpp"
-#include "hacks/AntiAntiAim.hpp"
-#include "sdk/dt_recv_redef.h"
 
-namespace hacks::anti_anti_aim
+namespace hacks::antiaim
 {
-static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
-static settings::Boolean debug{ "anti-anti-aim.debug.enable", "false" };
+bool force_fakelag = false;
+float used_yaw     = 0.0f;
+static settings::Boolean enable{ "antiaim.enable", "false" };
 
-std::unordered_map<unsigned, brutedata> resolver_map;
-std::array<CachedEntity *, 32> sniperdot_array;
+static settings::Boolean no_clamping{ "antiaim.no-clamp", "false" };
+static settings::Float roll{ "antiaim.roll", "0" };
+static settings::Float spin{ "antiaim.spin-speed", "10" };
 
-static inline void modifyAngles()
+static settings::Int pitch_fake{ "antiaim.pitch.fake", "0" };
+static settings::Int pitch_real{ "antiaim.pitch.real", "0" };
+static settings::Float pitch_static{ "antiaim.pitch.static", "0" };
+
+static settings::Int yaw_fake{ "antiaim.yaw.fake", "0" };
+static settings::Float yaw_fake_static{ "antiaim.yaw.fake.static", "0" };
+static settings::Int yaw_real{ "antiaim.yaw.real", "0" };
+static settings::Float yaw_real_static{ "antiaim.yaw.real.static", "0" };
+
+static settings::Boolean aaaa_enable{ "antiaim.aaaa.enable", "false" };
+static settings::Float aaaa_interval{ "antiaim.aaaa.interval.seconds", "0" };
+static settings::Float aaaa_interval_random_high{ "antiaim.aaaa.interval.random-high", "10" };
+static settings::Float aaaa_interval_random_low{ "antiaim.aaaa.interval.random-low", "2" };
+static settings::Int aaaa_mode{ "antiaim.aaaa.mode", "0" };
+static settings::Button aaaa_flip_key{ "antiaim.aaaa.flip-key", "<null>" };
+
+// Unused?
+static settings::Int yaw_sideways_min{ "antiaim.yaw.sideways.min", "0" };
+static settings::Int yaw_sideways_max{ "antiaim.yaw.sideways.max", "4" };
+
+// Two values for fake and real angles
+float cur_yaw[2] = { 0.0f, 0.0f };
+
+int safe_space = 0;
+
+float aaaa_timer_start = 0.0f;
+float aaaa_timer       = 0.0f;
+int aaaa_stage         = 0;
+bool aaaa_key_pressed  = false;
+
+float GetAAAAPitch()
 {
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    switch ((int) aaaa_mode)
     {
-        auto player = ENTITY(i);
-        if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy() || !player->player_info.friendsID)
-            continue;
-        auto &data  = resolver_map[player->player_info.friendsID];
-        auto &angle = CE_VECTOR(player, netvar.m_angEyeAngles);
-        angle.x     = data.new_angle.x;
-        angle.y     = data.new_angle.y;
+    case 0:
+        return aaaa_stage ? -271 : -89;
+    case 1:
+        return aaaa_stage ? 271 : 89;
+    case 2:
+        return aaaa_stage ? -180 : 180;
+    default:
+        break;
     }
+    return 0;
 }
-static inline void CreateMove()
+
+float GetAAAATimerLength()
 {
-    // Empty the array
-    sniperdot_array.fill(0);
-    // Find sniper dots
-    for (int i = g_IEngine->GetMaxClients() + 1; i <= HIGHEST_ENTITY; i++)
+    if (aaaa_interval)
+        return (float) aaaa_interval;
+    else
+        return RandFloatRange((float) aaaa_interval_random_low, (float) aaaa_interval_random_high);
+}
+
+void NextAAAA()
+{
+    aaaa_stage++;
+    // TODO temporary..
+    if (aaaa_stage > 1)
+        aaaa_stage = 0;
+}
+
+void UpdateAAAAKey()
+{
+    if (aaaa_flip_key.isKeyDown())
     {
-        CachedEntity *dot_ent = ENTITY(i);
-        // Not a sniper dot
-        if (CE_BAD(dot_ent) || dot_ent->m_iClassID() != CL_CLASS(CSniperDot))
-            continue;
-        // Get the player it belongs to
-        auto ent_idx = HandleToIDX(CE_INT(dot_ent, netvar.m_hOwnerEntity));
-        // IDX check
-        if (IDX_BAD(ent_idx) || ent_idx > sniperdot_array.size() || ent_idx <= 0)
-            continue;
-        // Good sniper dot, add to array
-        sniperdot_array.at(ent_idx - 1) = dot_ent;
-    }
-}
-
-void frameStageNotify(ClientFrameStage_t stage)
-{
-#if !ENABLE_TEXTMODE
-    if (!enable || !g_IEngine->IsInGame())
-        return;
-    if (stage == FRAME_NET_UPDATE_POSTDATAUPDATE_START)
-    {
-        modifyAngles();
-    }
-#endif
-}
-
-static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 65.0f, 90.0f, -180.0f, 260.0f, 30.0f, 20.0f };
-
-static float resolveAngleYaw(float angle, brutedata &brute)
-{
-    brute.original_angle.y = angle;
-    while (angle > 180)
-        angle -= 360;
-
-    while (angle < -180)
-        angle += 360;
-
-    // Yaw Resolving
-    // Find out which angle we should try
-    int entry = (int) std::floor((brute.brutenum / 5.0f)) % yaw_resolves.size();
-    angle += yaw_resolves[entry];
-
-    while (angle > 180)
-        angle -= 360;
-
-    while (angle < -180)
-        angle += 360;
-    brute.new_angle.y = angle;
-    return angle;
-}
-
-static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
-{
-    brute.original_angle.x = angle;
-
-    // Get CSniperDot associated with entity
-    CachedEntity *sniper_dot = nullptr;
-
-    // Get Weapon id
-    auto weapon_id = HandleToIDX(CE_INT(ent, netvar.hActiveWeapon));
-
-    // Check IDX for validity
-    if (IDX_GOOD(weapon_id))
-    {
-        auto weapon_ent = ENTITY(weapon_id);
-        // Check weapon for validity
-        if (CE_GOOD(weapon_ent) && (weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifle) || weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleDecap) || weapon_ent->m_iClassID() == CL_CLASS(CTFSniperRifleClassic)))
+        if (!aaaa_key_pressed)
         {
-            // Get Sniperdot
-            sniper_dot = sniperdot_array.at(ent->m_IDX - 1);
-            // Check if the dot is still good, if not then set to nullptr
-            if (CE_BAD(sniper_dot) || sniper_dot->m_iClassID() != CL_CLASS(CSniperDot))
-                sniper_dot = nullptr;
+            aaaa_key_pressed = true;
+            NextAAAA();
         }
     }
-    // No sniper dot/not using a sniperrifle.
-    if (sniper_dot == nullptr)
+    else
+        aaaa_key_pressed = false;
+}
+
+void UpdateAAAATimer()
+{
+    const float &curtime = g_GlobalVars->curtime;
+    if (aaaa_timer_start > curtime)
+        aaaa_timer_start = 0.0f;
+    if (!aaaa_timer || !aaaa_timer_start)
     {
-        if (brute.brutenum % 3)
+        aaaa_timer       = GetAAAATimerLength();
+        aaaa_timer_start = curtime;
+    }
+    else
+    {
+        if (curtime - aaaa_timer_start > aaaa_timer)
         {
-            // Pitch resolver
-            if (angle >= 195)
-                angle = -195;
-            if (angle <= -270)
-                angle = 50;
+            NextAAAA();
+            aaaa_timer_start = curtime;
+            aaaa_timer       = GetAAAATimerLength();
         }
     }
-    // Sniper dot found, use it.
-    else
-    {
-        // Get End and start point
-        auto dot_origin = sniper_dot->m_vecOrigin();
-        auto eye_origin = re::C_BasePlayer::GetEyePosition(RAW_ENT(ent));
-        // Get Angle from eye to dot
-        Vector diff = dot_origin - eye_origin;
-        Vector angles;
-        VectorAngles(diff, angles);
-        // Use the pitch (yaw is not useable because sadly the sniper dot does not represent it with fake yaw)
-        angle = angles.x;
-    }
-
-    brute.new_angle.x = angle;
-    return angle;
 }
 
-void increaseBruteNum(int idx)
+enum k_EFuckMode
 {
-    auto ent = ENTITY(idx);
-    if (CE_BAD(ent) || !ent->player_info.friendsID)
-        return;
-    auto &data = hacks::anti_anti_aim::resolver_map[ent->player_info.friendsID];
-    if (data.hits_in_a_row >= 4)
-        data.hits_in_a_row = 2;
-    else if (data.hits_in_a_row >= 2)
-        data.hits_in_a_row = 0;
-    else
+    FM_INCREMENT,
+    FM_RANDOMVARS,
+    FM_JITTER,
+    FM_SIGNFLIP,
+    FM_COUNT
+};
+
+struct FuckData_s
+{
+    float fl1, fl2, fl3, fl4;
+    int i1, i2;
+    bool b1, b2;
+};
+
+/*
+ * Not yet implemented.
+ */
+
+void FuckPitch(float &io_pitch)
+{
+    constexpr float min_pitch = -149489.97f;
+    constexpr float max_pitch = 149489.97f;
+    // static FuckData_s fuck_data;
+    static k_EFuckMode fuckmode = k_EFuckMode::FM_RANDOMVARS;
+    // static int fuckmode_ticks   = 0;
+
+    /*if (!fuckmode_ticks) {
+        fuckmode = rand() % k_EFuckMode::FM_COUNT;
+        fuckmode_ticks = rand() % 333;
+        switch (fuckmode) {
+        case k_EFuckMode::FM_INCREMENT:
+            fuck_data.fl1 = RandFloatRange(-400.0f, 400.0f);
+            fuck_data.i1 = rand() % 3;
+            break;
+        case k_EFuckMode::FM_JITTER:
+            fuck_data.fl1 = RandFloatRange(1.0f, 4.0f);
+            break;
+        case k_EFuckMode::FM_RANDOMVARS:
+            break;
+        }
+    }*/
+
+    switch (fuckmode)
     {
-        data.brutenum++;
-        if (debug)
-            logging::Info("AAA: Brutenum for entity %i increased to %i", idx, data.brutenum);
-        data.hits_in_a_row = 0;
-        auto &angle        = CE_VECTOR(ent, netvar.m_angEyeAngles);
-        angle.x            = resolveAnglePitch(data.original_angle.x, data, ent);
-        angle.y            = resolveAngleYaw(data.original_angle.y, data);
-        data.new_angle.x   = angle.x;
-        data.new_angle.y   = angle.y;
+    case k_EFuckMode::FM_RANDOMVARS:
+        io_pitch = RandFloatRange(min_pitch, max_pitch);
+    default:
+        break;
     }
+
+    if (io_pitch < min_pitch)
+        io_pitch = min_pitch;
+    if (io_pitch > max_pitch)
+        io_pitch = max_pitch;
 }
 
-static void pitchHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
+void FuckYaw(float &io_yaw)
 {
-    float flPitch      = pData->m_Value.m_Float;
-    float *flPitch_out = (float *) pOut;
+    constexpr float min_yaw = -359999.97f;
+    constexpr float max_yaw = 359999.97f;
 
+    static k_EFuckMode fuckmode = k_EFuckMode::FM_RANDOMVARS;
+
+    switch (fuckmode)
+    {
+    case k_EFuckMode::FM_RANDOMVARS:
+        io_yaw = RandFloatRange(min_yaw, max_yaw);
+    default:
+        break;
+    }
+
+    if (io_yaw < min_yaw)
+        io_yaw = min_yaw;
+    if (io_yaw > max_yaw)
+        io_yaw = max_yaw;
+}
+
+void SetSafeSpace(int safespace)
+{
+    if (safespace > safe_space)
+        safe_space = safespace;
+}
+
+/* checks if action slot is being used */
+void SendNetMessage(INetMessage &msg)
+{
     if (!enable)
-    {
-        *flPitch_out = flPitch;
         return;
-    }
 
-    auto client_ent   = (IClientEntity *) (pStruct);
-    CachedEntity *ent = ENTITY(client_ent->entindex());
-    if (CE_GOOD(ent))
-        *flPitch_out = resolveAnglePitch(flPitch, resolver_map[ent->player_info.friendsID], ent);
+    if (!((KeyValues *) (((unsigned *) &msg)[4])))
+        return;
+
+    auto name = ((KeyValues *) (((unsigned *) &msg)[4]))->GetName();
+
+    if (CE_BAD(LOCAL_E))
+        return;
+
+    /* checks if action slot has been used & grapple is equipped */
+    if (!strcmp(name, "+use_action_slot_item_server") && HasWeapon(LOCAL_E, 1152))
+        SetSafeSpace(2);
 }
 
-static void yawHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
+bool ShouldAA(CUserCmd *cmd)
 {
-    float flYaw      = pData->m_Value.m_Float;
-    float *flYaw_out = (float *) pOut;
-
-    if (!enable)
+    if (hacks::antibackstab::noaa)
+        return false;
+    if (cmd->buttons & IN_USE)
+        return false;
+    int classid = LOCAL_W->m_iClassID();
+    auto mode   = GetWeaponMode();
+    if (!(classid == CL_CLASS(CTFCompoundBow) || mode == weapon_melee) && CanShoot() && (cmd->buttons & IN_ATTACK))
     {
-        *flYaw_out = flYaw;
-        return;
+        return false;
     }
-
-    auto client_ent   = (IClientEntity *) (pStruct);
-    CachedEntity *ent = ENTITY(client_ent->entindex());
-    if (CE_GOOD(ent))
-        *flYaw_out = resolveAngleYaw(flYaw, resolver_map[ent->player_info.friendsID]);
-}
-
-// *_ptr points to what we need to modify while *_ProxyFn holds the old value
-static RecvVarProxyFn *original_ptrX;
-static RecvVarProxyFn original_ProxyFnX;
-static RecvVarProxyFn *original_ptrY;
-static RecvVarProxyFn original_ProxyFnY;
-
-static void hook()
-{
-    auto pClass = g_IBaseClient->GetAllClasses();
-    while (pClass)
+    if (classid == CL_CLASS(CTFLunchBox) && (cmd->buttons & IN_ATTACK2))
+        return false;
+    if (classid == CL_CLASS(CTFGrapplingHook) && !g_pLocalPlayer->bAttackLastTick && (cmd->buttons & IN_ATTACK))
     {
-        const char *pszName = pClass->m_pRecvTable->m_pNetTableName;
-        // "DT_TFPlayer", "tfnonlocaldata"
-        if (!strcmp(pszName, "DT_TFPlayer"))
+        SetSafeSpace(2);
+    }
+    switch (mode)
+    {
+    case weapon_projectile:
+        if (classid == CL_CLASS(CTFCompoundBow))
         {
-            for (int i = 0; i < pClass->m_pRecvTable->m_nProps; i++)
+            if (!(cmd->buttons & IN_ATTACK))
             {
-                RecvPropRedef *pProp1 = (RecvPropRedef *) &(pClass->m_pRecvTable->m_pProps[i]);
-                if (!pProp1)
-                    continue;
-                const char *pszName2 = pProp1->m_pVarName;
-                if (!strcmp(pszName2, "tfnonlocaldata"))
-                    for (int j = 0; j < pProp1->m_pDataTable->m_nProps; j++)
-                    {
-                        RecvPropRedef *pProp2 = (RecvPropRedef *) &(pProp1->m_pDataTable->m_pProps[j]);
-                        if (!pProp2)
-                            continue;
-                        const char *name = pProp2->m_pVarName;
-
-                        // Pitch Fix
-                        if (!strcmp(name, "m_angEyeAngles[0]"))
-                        {
-                            original_ptrX     = &pProp2->m_ProxyFn;
-                            original_ProxyFnX = pProp2->m_ProxyFn;
-                            pProp2->m_ProxyFn = pitchHook;
-                        }
-
-                        // Yaw Fix
-                        if (!strcmp(name, "m_angEyeAngles[1]"))
-                        {
-                            original_ptrY = &pProp2->m_ProxyFn;
-                            logging::Info("Yaw Fix Applied");
-                            original_ProxyFnY = pProp2->m_ProxyFn;
-                            pProp2->m_ProxyFn = yawHook;
-                        }
-                    }
+                if (g_pLocalPlayer->bAttackLastTick)
+                    SetSafeSpace(4);
             }
+            break;
         }
-        pClass = pClass->m_pNext;
+        [[fallthrough]];
+    case weapon_throwable:
+        if ((cmd->buttons & (IN_ATTACK | IN_ATTACK2)) || g_pLocalPlayer->bAttackLastTick)
+        {
+            SetSafeSpace(8);
+            return false;
+        }
+        break;
+    case weapon_melee:
+        if (g_pLocalPlayer->weapon_melee_damage_tick)
+            return false;
+        // Spy knife needs special treatment. There is no delay between IN_ATTACK and a hit
+        if (g_pLocalPlayer->clazz == tf_class::tf_spy && cmd->buttons & IN_ATTACK && CanShoot())
+            return false;
+    default:
+        break;
+    }
+    if (safe_space)
+    {
+        safe_space--;
+        if (safe_space < 0)
+            safe_space = 0;
+        return false;
+    }
+    return true;
+}
+
+// Initialize Edge vars
+float edgeYaw      = 0;
+float edgeToEdgeOn = 0;
+
+// Function to return distance from you to a yaw directed to
+float edgeDistance(float edgeRayYaw)
+{
+    // Main ray tracing area
+    trace_t trace;
+    Ray_t ray;
+    Vector forward;
+    float sp, sy, cp, cy;
+    sy        = sinf(DEG2RAD(edgeRayYaw)); // yaw
+    cy        = cosf(DEG2RAD(edgeRayYaw));
+    sp        = sinf(DEG2RAD(0)); // pitch
+    cp        = cosf(DEG2RAD(0));
+    forward.x = cp * cy;
+    forward.y = cp * sy;
+    forward.z = -sp;
+    forward   = forward * 300.0f + g_pLocalPlayer->v_Eye;
+    ray.Init(g_pLocalPlayer->v_Eye, forward);
+    // trace::g_pFilterNoPlayer to only focus on the enviroment
+    g_ITrace->TraceRay(ray, 0x4200400B, &trace::filter_no_player, &trace);
+    // Pythagorean theorem to calculate distance
+    float edgeDistance = (sqrt(pow(trace.startpos.x - trace.endpos.x, 2) + pow(trace.startpos.y - trace.endpos.y, 2)));
+    return edgeDistance;
+}
+
+// Function to Find an edge and report if one is found at all
+bool findEdge(float edgeOrigYaw)
+{
+    // distance two vectors and report their combined distances
+    float edgeLeftDist  = edgeDistance(edgeOrigYaw - 21);
+    edgeLeftDist        = edgeLeftDist + edgeDistance(edgeOrigYaw - 27);
+    float edgeRightDist = edgeDistance(edgeOrigYaw + 21);
+    edgeRightDist       = edgeRightDist + edgeDistance(edgeOrigYaw + 27);
+
+    // If the distance is too far, then set the distance to max so the angle isn't used
+    if (edgeLeftDist >= 260)
+        edgeLeftDist = 999999999;
+    if (edgeRightDist >= 260)
+        edgeRightDist = 999999999;
+
+    // If none of the vectors found a wall, then don't edge
+    if (edgeLeftDist == edgeRightDist)
+        return false;
+
+    // Depending on the edge, choose a direction to face
+    if (edgeRightDist < edgeLeftDist)
+    {
+        edgeToEdgeOn = 1;
+        // Correction for pitches to keep the head behind walls with real Up or Jitter
+        if ((((int) pitch_real == 2) || ((int) pitch_real == 4)) && !g_pLocalPlayer->isFakeAngleCM)
+            edgeToEdgeOn = 2;
+        return true;
+    }
+    else
+    {
+        edgeToEdgeOn = 2;
+        // Same as above
+        if ((((int) pitch_real == 2) || ((int) pitch_real == 4)) && !g_pLocalPlayer->isFakeAngleCM)
+            edgeToEdgeOn = 1;
+        return true;
     }
 }
 
-static void shutdown()
+// Function to give you a static angle to use
+float useEdge(float edgeViewAngle)
 {
-    *original_ptrX = original_ProxyFnX;
-    *original_ptrY = original_ProxyFnY;
+    // Var to be disabled when an angle is chosen to prevent the others from
+    // conflicting
+    bool edgeTest = true;
+    if ((edgeViewAngle < -135) || (edgeViewAngle > 135))
+    {
+        if (edgeToEdgeOn == 1)
+            edgeYaw = (float) -90;
+        if (edgeToEdgeOn == 2)
+            edgeYaw = (float) 90;
+        edgeTest = false;
+    }
+    if ((edgeViewAngle >= -135) && (edgeViewAngle < -45) && edgeTest)
+    {
+        if (edgeToEdgeOn == 1)
+            edgeYaw = (float) 0;
+        if (edgeToEdgeOn == 2)
+            edgeYaw = (float) 179;
+        edgeTest = false;
+    }
+    if ((edgeViewAngle >= -45) && (edgeViewAngle < 45) && edgeTest)
+    {
+        if (edgeToEdgeOn == 1)
+            edgeYaw = (float) 90;
+        if (edgeToEdgeOn == 2)
+            edgeYaw = (float) -90;
+        edgeTest = false;
+    }
+    if ((edgeViewAngle <= 135) && (edgeViewAngle >= 45) && edgeTest)
+    {
+        if (edgeToEdgeOn == 1)
+            edgeYaw = (float) 179;
+        if (edgeToEdgeOn == 2)
+            edgeYaw = (float) 0;
+    }
+    // return with the angle choosen
+    return edgeYaw;
 }
 
-static InitRoutine init(
-    []()
+static float randyaw = 0.0f;
+void ProcessUserCmd(CUserCmd *cmd)
+{
+    // Not running
+    if (!enable)
+        return;
+    if (!ShouldAA(cmd))
+        return;
+    if (!pitch_fake && !pitch_real && !yaw_fake && !yaw_real)
+        return;
+
+    static bool keepmode = true;
+    keepmode             = !keepmode;
+    float &p             = cmd->viewangles.x;
+    float &y             = cmd->viewangles.y;
+    static bool flip     = false;
+    bool clamp           = !no_clamping;
+    bool yaw_mode        = true;
+
+    static int ticksUntilSwap = 0;
+    static bool swap          = true;
+
+    // Reset the ticks and swap for some reason...
+    if (ticksUntilSwap > 0 && (*yaw_fake != 8 || *yaw_real != 8))
     {
-        hook();
-        EC::Register(EC::Shutdown, shutdown, "antiantiaim_shutdown");
-        EC::Register(EC::CreateMove, CreateMove, "cm_antiantiaim");
-        EC::Register(EC::CreateMoveWarp, CreateMove, "cmw_antiantiaim");
-#if ENABLE_TEXTMODE
-        EC::Register(EC::CreateMove, modifyAngles, "cm_textmodeantiantiaim");
-        EC::Register(EC::CreateMoveWarp, modifyAngles, "cmw_textmodeantiantiaim");
-#endif
-    });
-} // namespace hacks::anti_anti_aim
+        swap           = true;
+        ticksUntilSwap = 0;
+    }
+
+    // Yaw logic
+    if (g_pLocalPlayer->isFakeAngleCM)
+        yaw_mode = false;
+
+    switch ((int) (yaw_mode ? yaw_real : yaw_fake))
+    {
+    case 1: // Custom
+        y = (float) (yaw_mode ? yaw_real_static : yaw_fake_static);
+        break;
+    case 2: // Custom Offset
+        y += (float) (yaw_mode ? yaw_real_static : yaw_fake_static);
+        break;
+    case 3: // Left
+        y -= 90.0f;
+        break;
+    case 4: // Right
+        y += 90.0f;
+        break;
+    case 5: // Back
+        y += 180.0f;
+        break;
+    case 6: // Spin
+        cur_yaw[yaw_mode] += yaw_mode ? (float) spin : -((float) spin);
+        while (cur_yaw[yaw_mode] > 180.0f)
+            cur_yaw[yaw_mode] += -360.0f;
+        while (cur_yaw[yaw_mode] < -180.0f)
+            cur_yaw[yaw_mode] += 360.0f;
+        y = cur_yaw[yaw_mode];
+        break;
+    case 7: // Edge
+        // Attempt to find an edge and if found, rotate around it
+        if (findEdge(y))
+            y = useEdge(y);
+        break;
+    case 8: // Sideways
+        if (!yaw_mode)
+            swap = !swap;
+        y += swap ? 90.0f : -90.0f;
+        break;
+    case 9: // Heck
+        FuckYaw(y);
+        clamp = false;
+        break;
+    case 10: // Omega
+        if (!yaw_mode)
+        {
+            randyaw += RandFloatRange(-30.0f, 30.0f);
+            y = randyaw;
+        }
+        else
+            y = randyaw - 180.0f + RandFloatRange(-40.0f, 40.0f);
+        break;
+    case 11: // Random
+        y     = RandFloatRange(-65536.0f, 65536.0f);
+        clamp = false;
+        break;
+    case 12: // Random Clamped
+        y = RandFloatRange(-180.0f, 180.0f);
+        break;
+    default:
+        break;
+    }
+
+    // Pitch logic
+    switch (int(pitch_real))
+    {
+    case 1: // Custom
+        p = float(pitch_static);
+        break;
+    case 2: // Up
+        p = -89.0f;
+        break;
+    case 3: // Down
+        p = 89.0f;
+        break;
+    case 4: // Jitter
+        if (flip)
+            p += 30.0f;
+        else
+            p -= 30.0f;
+        break;
+    case 5: // Random
+        p = RandFloatRange(-89.0f, 89.0f);
+        break;
+    case 6: // Flip
+        p = flip ? 89.0f : -89.0f;
+        break;
+    case 7: // Heck
+        FuckPitch(p);
+        clamp = false;
+    }
+
+    // Fake is done afterwards so that they can be applied on top of the real angles set above
+    switch (int(pitch_fake))
+    {
+    case 1: // Up
+        p -= 360.0f;
+        break;
+    case 2: // Down
+        p += 360.0f;
+        break;
+    case 3: // Inverse
+        if (p <= -89.0f)
+            p += 360.0f;
+        else if (p >= 89.0f)
+            p -= 360.0f;
+        break;
+    }
+
+    flip = !flip;
+    if (clamp)
+        fClampAngle(cmd->viewangles);
+    if (roll)
+        cmd->viewangles.z = float(roll);
+    if (aaaa_enable)
+    {
+        UpdateAAAAKey();
+        UpdateAAAATimer();
+        p = GetAAAAPitch();
+    }
+    if (!g_pLocalPlayer->isFakeAngleCM)
+        used_yaw = y;
+    g_pLocalPlayer->bUseSilentAngles = true;
+}
+
+bool isEnabled()
+{
+    return *enable;
+}
+
+static InitRoutine fakelag_check([]() { yaw_fake.installChangeCallback([](settings::VariableBase<int> &, int after) { force_fakelag = after > 0; }); });
+} // namespace hacks::antiaim
