@@ -8,7 +8,7 @@
 
 namespace hacks::anti_anti_aim
 {
-static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
+static settings::Boolean enable{ "anti-anti-aim.enable", "true" };
 static settings::Boolean debug{ "anti-anti-aim.debug.enable", "false" };
 
 std::unordered_map<unsigned, brutedata> resolver_map;
@@ -60,7 +60,7 @@ void frameStageNotify(ClientFrameStage_t stage)
 #endif
 }
 
-static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 65.0f, 90.0f, -180.0f, 260.0f, 30.0f, 20.0f };
+static std::array<float, 8> yaw_resolves{ 0.0f, 180.0f, 65.0f, 90.0f, -180.0f, 260.0f, 80.0f, 20.0f };
 
 static float resolveAngleYaw(float angle, brutedata &brute)
 {
