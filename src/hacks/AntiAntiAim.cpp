@@ -260,7 +260,7 @@ bool ShouldAA(CUserCmd *cmd)
     case weapon_melee:
         if (g_pLocalPlayer->weapon_melee_damage_tick)
             return false;
-        // Spy knife needs special treatment. There is no delay between IN_ATTACK and a hit
+        // Spy knife needs special treatment, there is no delay between IN_ATTACK and a hit
         if (g_pLocalPlayer->clazz == tf_class::tf_spy && cmd->buttons & IN_ATTACK && CanShoot())
             return false;
     default:
