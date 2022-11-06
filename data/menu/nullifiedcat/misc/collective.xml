@@ -34,6 +34,7 @@
             <AutoVariable width="fill" target="misc.rich-presence.file-name" label="Filename" tooltip="For the message that comes after 'Special Event -'"/>
             <AutoVariable width="fill" target="misc.rich-presence.party_size" label="Party size"/>
             <AutoVariable width="fill" target="misc.rich-presence.delay" label="Delay (ms)"/>
+            <AutoVariable width="fill" target="debug.join-wait-time" label="Joinspam wait time"/>
         </List>
     </Box>
 </Tab>
