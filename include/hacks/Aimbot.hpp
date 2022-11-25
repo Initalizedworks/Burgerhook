@@ -20,7 +20,7 @@ extern unsigned last_target_ignore_timer;
 struct AimbotCalculatedData_s
 {
     unsigned long predict_tick{ 0 };
-    bool predict_type{ 0 };
+    bool predict_type{ false };
     Vector aim_position{ 0 };
     unsigned long vcheck_tick{ 0 };
     bool visible{ false };
@@ -33,7 +33,7 @@ Vector PredictEntity(CachedEntity *entity, bool vischeck);
 bool VischeckPredictedEntity(CachedEntity *entity);
 bool BacktrackVisCheck(CachedEntity *entity);
 
-// Functions called by other functions for when certian game calls are run
+// Functions called by other functions for when certain game calls are run
 void Reset();
 
 // Stuff to make storing functions easy
