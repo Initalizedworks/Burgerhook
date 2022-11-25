@@ -118,7 +118,7 @@ static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
             if (angle >= 180)
                 angle = -180;
             if (angle <= -360)
-                angle = -80;
+                angle = -50;
         }
     }
     // Sniper dot found, use it.
