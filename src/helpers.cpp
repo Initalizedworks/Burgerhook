@@ -1068,7 +1068,6 @@ bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_
 
     if (entity == g_pLocalPlayer->entity)
         return true;
-    
     trace::filter_default.SetSelf(RAW_ENT(g_pLocalPlayer->entity));
     Vector eye = g_pLocalPlayer->v_Eye;
     // Adjust for weapon offsets if needed
