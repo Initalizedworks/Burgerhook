@@ -134,8 +134,8 @@ std::vector<CachedEntity *> getDispensers()
     return entities;
 }
 
-// true for health, false for ammo
-std::vector<CachedEntity *> getEntities(bool find_health)
+// Get entities of given itemtypes (Used for health/ammo)
+std::vector<CachedEntity *> getEntities(const std::vector<k_EItemType> &itemtypes)
 {
     std::vector<CachedEntity *> entities;
     for (int i = g_IEngine->GetMaxClients() + 1; i < MAX_ENTITIES; i++)
@@ -143,11 +143,9 @@ std::vector<CachedEntity *> getEntities(bool find_health)
         CachedEntity *ent = ENTITY(i);
         if (CE_BAD(ent))
             continue;
-        const model_t *model = RAW_ENT(ent)->GetModel();
-        if (model)
+        for (auto &itemtype : itemtypes)
         {
-           const auto szName = g_IModelInfo->GetModelName(model);
-            if ((find_health && Hash::IsHealth(szName)) || (!find_health && Hash::IsAmmo(szName)))
+            if (ent->m_ItemType() == itemtype)
             {
                 entities.push_back(ent);
                 break;
@@ -174,7 +172,7 @@ bool getHealth(bool low_priority = false)
             if (!repath_timer.test_and_set(2000))
                 return true;
         }
-        auto healthpacks = getEntities(true);
+        auto healthpacks = getEntities({ ITEM_HEALTH_SMALL, ITEM_HEALTH_MEDIUM, ITEM_HEALTH_LARGE });
         auto dispensers  = getDispensers();
 
         auto total_ents = healthpacks;
@@ -215,7 +213,7 @@ bool getAmmo(bool force = false)
         }
         else
             was_force = false;
-        auto ammopacks  = getEntities(false);
+        auto ammopacks  = getEntities({ ITEM_AMMO_SMALL, ITEM_AMMO_MEDIUM, ITEM_AMMO_LARGE });
         auto dispensers = getDispensers();
 
         auto total_ents = ammopacks;
