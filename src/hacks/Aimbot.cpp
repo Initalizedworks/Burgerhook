@@ -18,6 +18,7 @@
 #include "hitrate.hpp"
 #include "FollowBot.hpp"
 #include "Warp.hpp"
+#include "NavBot.hpp"
 
 namespace hacks::aimbot
 {
