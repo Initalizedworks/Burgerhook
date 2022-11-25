@@ -45,4 +45,4 @@ Steps to reproduce the behavior:
 ## Checklist  
 - [ ] I have included my DE, WM, and version of Cathook.
 - [ ] I have included the steps to reproduce and my logs to the best I am able to share.
-- [ ] The Developers are allowed to contact me on [the official telegram](https://t.me/nullworks) for further information if they need to. (Put your username here)
+- [ ] screw you lol 
