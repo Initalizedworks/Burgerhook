@@ -117,7 +117,7 @@ static void checkAFK()
         {
             afkTicks[i].update();
         }
-#if ENABLE_TEXT_MODE
+#if ENABLE_TEXTMODE
         auto entity = ENTITY(i);
         if (CE_BAD(entity))
             continue;
