@@ -39,8 +39,7 @@ void BeginConVars()
         {
             cfg_autoexec << "// Put your custom cathook settings in this "
                             "file\n// This script will be executed EACH TIME "
-                            "YOU INJECT CATHOOK\n"
-                            "exec trusted.cfg";
+                            "YOU INJECT BURGERHOOK\n"
         }
     }
     if (!std::ifstream("tf/cfg/cat_matchexec.cfg"))
@@ -51,7 +50,6 @@ void BeginConVars()
             cfg_autoexec << "// Put your custom cathook settings in this "
                             "file\n// This script will be executed EACH TIME "
                             "YOU JOIN A MATCH\n"
-                            "exec trusted.cfg";
         }
     }
     logging::Info(":b:");
@@ -1067,14 +1065,9 @@ bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_
         trace = &trace_object;
     Ray_t ray;
 
-    if (g_Settings.bInvalid)
-        return false;
     if (entity == g_pLocalPlayer->entity)
         return true;
-    if (CE_BAD(g_pLocalPlayer->entity))
-        return false;
-    if (CE_BAD(entity))
-        return false;
+    
     trace::filter_default.SetSelf(RAW_ENT(g_pLocalPlayer->entity));
     Vector eye = g_pLocalPlayer->v_Eye;
     // Adjust for weapon offsets if needed
