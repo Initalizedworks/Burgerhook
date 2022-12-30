@@ -39,7 +39,7 @@ void BeginConVars()
         {
             cfg_autoexec << "// Put your custom cathook settings in this "
                             "file\n// This script will be executed EACH TIME "
-                            "YOU INJECT BURGERHOOK\n"
+                            "YOU INJECT BURGERHOOK\n";
         }
     }
     if (!std::ifstream("tf/cfg/cat_matchexec.cfg"))
@@ -49,8 +49,8 @@ void BeginConVars()
         {
             cfg_autoexec << "// Put your custom cathook settings in this "
                             "file\n// This script will be executed EACH TIME "
-                            "YOU JOIN A MATCH\n"
-        }
+                            "YOU JOIN A MATCH\n";
+         }
     }
     logging::Info(":b:");
     SetCVarInterface(g_ICvar);
