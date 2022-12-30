@@ -15,6 +15,8 @@
 #include "NavBot.hpp"
 #include "HookTools.hpp"
 #include "teamroundtimer.hpp"
+// Found in C_BasePlayer. It represents "m_pCurrentCommand"
+#define CURR_CUSERCMD_PTR 4452
 #include "Misc.hpp"
 #include "HookedMethods.hpp"
 #include "nospread.hpp"
@@ -59,7 +61,7 @@ void RunEnginePrediction(IClientEntity *ent, CUserCmd *ucmd)
     }
 
     // Set Usercmd for prediction
-    NET_VAR(ent, 4188, CUserCmd *) = ucmd;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = ucmd;
 
     // Set correct CURTIME
     g_GlobalVars->curtime   = g_GlobalVars->interval_per_tick * NET_INT(ent, netvar.nTickBase);
@@ -75,7 +77,7 @@ void RunEnginePrediction(IClientEntity *ent, CUserCmd *ucmd)
     g_IGameMovement->FinishTrackPredictionErrors(reinterpret_cast<CBasePlayer *>(ent));
 
     // Reset User CMD
-    NET_VAR(ent, 4188, CUserCmd *) = nullptr;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = nullptr;
 
     g_GlobalVars->frametime = frameTime;
     g_GlobalVars->curtime   = curTime;
@@ -393,6 +395,11 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
         g_pLocalPlayer->UpdateEnd();
     }
 
+    //	PROF_END("CreateMove");
+    if (!(cmd->buttons & IN_ATTACK))
+    {
+        // LoadSavedState();
+    }
     g_Settings.is_create_move = false;
     if (nolerp)
     {
