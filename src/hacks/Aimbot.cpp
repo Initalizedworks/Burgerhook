@@ -982,11 +982,8 @@ bool IsTargetStateGood(CachedEntity *entity)
     // Check for buildings
     case(ENTITY_BUILDING):
     {
-        // Don't aim if holding sapper
-        if (g_pLocalPlayer->holding_sapper)
-            return false;
         // Enabled check
-        else if (!(buildings_other || buildings_sentry))
+         if (!(buildings_other || buildings_sentry))
             return false;
         // Teammates, Even with friendly fire enabled, buildings can NOT be
         // damaged
@@ -1040,12 +1037,8 @@ bool IsTargetStateGood(CachedEntity *entity)
     {
     // NPCs (Skeletons, Merasmus, etc)
 
-        // Sapper aimbot? no.
-        if (g_pLocalPlayer->holding_sapper)
-            return false;
-
         // NPC targeting is disabled
-        else if (!npcs)
+         if (!npcs)
             return false;
 
         // Cannot shoot this
@@ -1138,10 +1131,6 @@ void Aim(CachedEntity *entity)
     // Get angles from eye to target
     Vector angles = GetAimAtAngles(g_pLocalPlayer->v_Eye, PredictEntity(entity, false), LOCAL_E);
 
-    // Slow aim
-    if (slow_aim)
-        DoSlowAim(angles);
-
     // Set angles
     current_user_cmd->viewangles = angles;
 
@@ -1222,15 +1211,6 @@ void DoAutoshoot(CachedEntity *target_entity)
             if (zoomed_only && !CanHeadshot())
             attack = false;
         }
-    }
-
-
-    // Ambassador check
-    if (IsAmbassador(g_pLocalPlayer->weapon()))
-    {
-        // Check if ambasador can headshot
-        if (!AmbassadorCanHeadshot() && wait_for_charge)
-        attack = false;
     }
 
     // Autoshoot breaks with Slow aimbot, so use a workaround to detect when it
@@ -1415,23 +1395,6 @@ int auto_hitbox(CachedEntity* target)
                     return hitbox_t::spine_1;
                 else
                     return hitbox_t::head;
-            }
-
-            // Ambassador
-            else if (IsAmbassador(g_pLocalPlayer->weapon()))
-            {
-                headonly = AmbassadorCanHeadshot();
-                // 18 health is a good number to use as thats the usual minimum
-                // damage it can do with a bodyshot, but damage could
-                // potentially be higher
-                if (target_health <= 18 || IsPlayerCritBoosted(g_pLocalPlayer->entity) || target->m_flDistance() > 1200){
-                    headonly = false;
-                    return hitbox_t::spine_1;
-                }
-                else{
-                    return hitbox_t::head;
-                }
-
             }
 
             // Rockets and stickies should aim at the foot if the target is on the ground
